@@ -36,3 +36,5 @@ temp/
 *.db
 
 pino.log
+
+/src/generated/prisma
