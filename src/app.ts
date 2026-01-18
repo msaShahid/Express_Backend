@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
+import authRoutes from "@/modules/auth/auth.routes.js";
 
 const app: Application = express();
 
@@ -36,12 +37,14 @@ app.use(
 );
 
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-  console.log(err.stack);
+  console.error(err.message);
   res.status(err.status || 500).json({
     success: false,
     message: err.message || 'Somthing went wrong.'
   })
 })
+
+app.use("/api/auth", authRoutes);
 
 app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
