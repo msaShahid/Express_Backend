@@ -1,14 +1,15 @@
-import prisma from "../../prisma/client.js";
-import type { User, RefreshToken } from "@prisma/client";
+import { prisma } from "../../prisma/client.js";
+import type { User, RefreshToken } from "../../../generated/prisma/index.js";
 
 
 export class AuthRepository {
 
-  static createUser(data: { email: string; passwordHash: string; role?: "USER" | "ADMIN"; }): Promise<User> {
+  static createUser(data: { name: string ,email: string; password: string; role?: "USER" | "ADMIN"; }): Promise<User> {
     return prisma.user.create({
       data: {
+        name: data.name,
         email: data.email,
-        passwordHash: data.passwordHash,
+        password: data.password,
         role: data.role || "USER",
       },
     });

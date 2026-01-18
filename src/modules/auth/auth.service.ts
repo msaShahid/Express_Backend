@@ -1,5 +1,5 @@
 import { AuthRepository } from "./auth.repository.js";
-import { LoginDto, Tokens, RegisterDto, AuthResponse } from "./auth.types.js";
+import { LoginDto, RegisterDto, AuthResponse } from "./auth.types.js";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "./utils/jwt.js";
 import { compareHash, hashPassword, hashToken } from "./utils/password.js";
 
@@ -9,11 +9,12 @@ export class AuthService {
     const existingUser = await AuthRepository.findUserByEmail(dto.email);
     if (existingUser) throw new Error("Email already registered");
 
-    const passwordHash = await hashPassword(dto.password);
+    const password = await hashPassword(dto.password);
 
     const user = await AuthRepository.createUser({
+      name: dto.name,
       email: dto.email,
-      passwordHash,
+      password,
       role: dto.role,
     });
 
@@ -30,6 +31,7 @@ export class AuthService {
     return {
       user: {
         id: user.id,
+        name: user.name,
         email: user.email,
         role: user.role,
         emailVerified: user.emailVerified,
@@ -51,7 +53,7 @@ export class AuthService {
       throw new Error("Account temporarily locked");
     }
 
-    const validPassword = await compareHash(dto.password, user.passwordHash);
+    const validPassword = await compareHash(dto.password, user.password);
 
     if (!validPassword) {
       const attempts = user.failedLoginAttempts + 1;
@@ -82,6 +84,7 @@ export class AuthService {
     return {
       user: {
         id: user.id,
+        name: user.name,
         email: user.email,
         role: user.role,
         emailVerified: user.emailVerified,
@@ -126,6 +129,7 @@ export class AuthService {
     return {
       user: {
         id: user.id,
+        name: user.name,
         email: user.email,
         role: user.role,
         emailVerified: user.emailVerified,

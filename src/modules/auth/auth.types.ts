@@ -1,4 +1,5 @@
 export interface RegisterDto {
+  name: string,
   email: string;
   password: string;
   role?: "USER" | "ADMIN"; 
@@ -16,6 +17,7 @@ export interface Tokens {
 
 export interface UserResponse {
   id: string;
+  name: string,
   email: string;
   role: "USER" | "ADMIN";
   emailVerified?: boolean;
