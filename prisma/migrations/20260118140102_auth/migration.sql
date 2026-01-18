@@ -4,8 +4,9 @@ CREATE TYPE "Role" AS ENUM ('USER', 'ADMIN');
 -- CreateTable
 CREATE TABLE "User" (
     "id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
     "email" TEXT NOT NULL,
-    "passwordHash" TEXT NOT NULL,
+    "password" TEXT NOT NULL,
     "emailVerified" BOOLEAN NOT NULL DEFAULT false,
     "isActive" BOOLEAN NOT NULL DEFAULT true,
     "lastLoginAt" TIMESTAMP(3),
