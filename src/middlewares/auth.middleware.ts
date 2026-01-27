@@ -5,6 +5,7 @@ export interface AuthRequest extends Request {
   user?: {
     userId: string;
     role: "USER" | "ADMIN";
+    sessionId?:  string
   };
 }
 
@@ -24,11 +25,13 @@ export function requireAuth(
     const payload = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET!) as {
       userId: string;
       role: "USER" | "ADMIN";
+      sessionId?: string; 
     };
 
     req.user = {
       userId: payload.userId,
       role: payload.role,
+      sessionId: payload.sessionId,
     };
 
     next();
