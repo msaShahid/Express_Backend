@@ -43,11 +43,20 @@ model User {
 
 model RefreshToken {
   id        String   @id @default(uuid())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+ 
   tokenHash String
   expiresAt DateTime
+
+  sessionId    String?
+  ipAddress    String?
+  userAgent    String?
+
+  revokedAt    DateTime?
   createdAt DateTime @default(now())
 
   @@index([userId])
+  @@index([sessionId])
+  @@unique([userId, sessionId])
 }
