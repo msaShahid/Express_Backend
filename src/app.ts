@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
 import authRoutes from "@/modules/auth/auth.routes.js";
+import { errorHandler } from '@/middlewares/error.middleware.js';
 
 const app: Application = express();
 
@@ -36,13 +37,7 @@ app.use(
   })
 );
 
-app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-  console.error(err.message);
-  res.status(err.status || 500).json({
-    success: false,
-    message: err.message || 'Somthing went wrong.'
-  })
-})
+app.use(errorHandler);
 
 app.use("/api/auth", authRoutes);
 
