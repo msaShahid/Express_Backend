@@ -1,22 +1,23 @@
 import { prisma } from "../../prisma/client.js";
 import type { User, RefreshToken } from "../../../generated/prisma/index.js";
 
-
 export class AuthRepository {
 
-  static createUser(data: { name: string ,email: string; password: string; role?: "USER" | "ADMIN"; }): Promise<User> {
-    return prisma.user.create({
-      data: {
-        name: data.name,
-        email: data.email,
-        password: data.password,
-        role: data.role || "USER",
-      },
-    });
+  static createUser(data: {
+    name: string;
+    email: string;
+    password: string;
+    role?: "USER" | "ADMIN";
+  }): Promise<User> {
+    return prisma.user.create({ data });
   }
 
   static findUserById(id: string) {
     return prisma.user.findUnique({ where: { id } });
+  }
+
+  static findUserByEmail(email: string) {
+    return prisma.user.findUnique({ where: { email } });
   }
 
   static lockUser(userId: string, until: Date) {
@@ -24,10 +25,6 @@ export class AuthRepository {
       where: { id: userId },
       data: { lockedUntil: until },
     });
-  }
-
-  static findUserByEmail(email: string): Promise<User | null> {
-    return prisma.user.findUnique({ where: { email } });
   }
 
   static incrementFailedAttempts(userId: string) {
@@ -44,24 +41,40 @@ export class AuthRepository {
     });
   }
 
-  static createRefreshToken(data: { userId: string; tokenHash: string; expiresAt: Date; }): Promise<RefreshToken> {
+  // ---------------- REFRESH TOKENS ----------------
+
+  static createRefreshToken(data: {
+    userId: string;
+    sessionId: string;
+    tokenHash: string;
+    expiresAt: Date;
+    ipAddress?: string | null;
+    userAgent?: string | null;
+  }): Promise<RefreshToken> {
     return prisma.refreshToken.create({ data });
   }
 
-  static deleteRefreshToken(id: string) {
-    return prisma.refreshToken.delete({ where: { id } });
+  static findRefreshToken(userId: string, sessionId: string) {
+    return prisma.refreshToken.findUnique({
+      where: { userId_sessionId: { userId, sessionId } },
+    });
   }
 
-  static findLatestRefreshToken(userId: string): Promise<RefreshToken | null> {
-    return prisma.refreshToken.findFirst({
-      where: { userId },
-      orderBy: { createdAt: "desc" },
+  static revokeRefreshToken(id: string) {
+    return prisma.refreshToken.update({
+      where: { id },
+      data: { revokedAt: new Date() },
+    });
+  }
+
+  static revokeBySession(userId: string, sessionId: string) {
+    return prisma.refreshToken.updateMany({
+      where: { userId, sessionId },
+      data: { revokedAt: new Date() },
     });
   }
 
   static deleteAllRefreshTokens(userId: string) {
     return prisma.refreshToken.deleteMany({ where: { userId } });
   }
-
-
 }
