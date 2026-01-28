@@ -1,7 +1,7 @@
 import { Request } from "express";
 import { AuthRepository } from "./auth.repository.js";
-import { LoginDto, RegisterDto, AuthResponse } from "./auth.types.js";
-import {signAccessToken, signRefreshToken, verifyRefreshToken, } from "./utils/jwt.js";
+import { LoginDto, RegisterDto, AuthResponse, UserResponse } from "./auth.types.js";
+import { signAccessToken, signRefreshToken, verifyRefreshToken, } from "./utils/jwt.js";
 import { compareHash, hashPassword, hashToken } from "./utils/password.js";
 import { AuthErrors } from "./auth.errors.js";
 import { generateSessionId } from "./utils/session.js";
@@ -101,13 +101,14 @@ export class AuthService {
   }
 
   private static async issueTokens(
-    user: any,
+    user: UserResponse,
     sessionId: string,
     meta: { ipAddress?: string | null; userAgent?: string | null }
   ): Promise<AuthResponse> {
     const accessToken = signAccessToken({
       userId: user.id,
       role: user.role,
+      sessionId
     });
 
     const refreshToken = signRefreshToken({
@@ -130,6 +131,7 @@ export class AuthService {
         name: user.name,
         email: user.email,
         role: user.role,
+        failedLoginAttempts: user.failedLoginAttempts,
         emailVerified: user.emailVerified,
         isActive: user.isActive,
         createdAt: user.createdAt,
@@ -139,7 +141,7 @@ export class AuthService {
     };
   }
 
-  private static async handleFailedLogin(user: any) {
+  private static async handleFailedLogin(user: UserResponse) {
     const attempts = user.failedLoginAttempts + 1;
 
     if (attempts >= 5) {

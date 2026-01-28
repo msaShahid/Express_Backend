@@ -100,4 +100,15 @@ export class AuthController {
       });
     }
   }
+
+  static async me(req: AuthRequest, res: Response) {
+    res.status(200).json({
+      user: {
+        id: req.user!.userId,
+        role: req.user!.role,
+      },
+    });
+  }
+
+
 }

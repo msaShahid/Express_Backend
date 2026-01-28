@@ -1,12 +1,18 @@
 import { Request, Response, NextFunction } from "express";
-import jwt from "jsonwebtoken";
+import jwt, { JwtPayload } from "jsonwebtoken";
 
 export interface AuthRequest extends Request {
   user?: {
     userId: string;
     role: "USER" | "ADMIN";
-    sessionId?:  string
+    sessionId: string;
   };
+}
+
+interface AccessTokenPayload extends JwtPayload {
+  userId: string;
+  role: "USER" | "ADMIN";
+  sessionId: string;
 }
 
 export function requireAuth(
@@ -15,18 +21,24 @@ export function requireAuth(
   next: NextFunction
 ) {
   const header = req.headers.authorization;
-  if (!header?.startsWith("Bearer ")) {
-    return res.status(401).json({ message: "Unauthorized: No token" });
+
+  if (!header || !header.startsWith("Bearer ")) {
+    return res.status(401).json({
+      code: "NO_TOKEN",
+      message: "Authorization token missing",
+    });
   }
 
-  try {
-    const token = header.split(" ")[1];
+  const token = header.split(" ")[1];
 
-    const payload = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET!) as {
-      userId: string;
-      role: "USER" | "ADMIN";
-      sessionId?: string; 
-    };
+  try {
+    const payload = jwt.verify(
+      token,
+      process.env.ACCESS_TOKEN_SECRET!,
+      {
+        clockTolerance: 5, // 5 seconds skew tolerance
+      }
+    ) as AccessTokenPayload;
 
     req.user = {
       userId: payload.userId,
@@ -35,8 +47,18 @@ export function requireAuth(
     };
 
     next();
-  } catch (err: any) {
-    console.error("JWT verification error:", err.message); 
-    res.status(401).json({ message: "Invalid token" });
+  } catch (err: unknown) {
+    if (err && typeof err === "object" && "name" in err && err.name === "TokenExpiredError") {
+      return res.status(401).json({
+        code: "TOKEN_EXPIRED",
+        message: "Access token expired",
+      });
+    }
+
+    return res.status(401).json({
+      code: "INVALID_TOKEN",
+      message: "Invalid access token",
+    });
   }
+
 }

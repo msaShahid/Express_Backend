@@ -21,6 +21,7 @@ export interface UserResponse {
   email: string;
   role: "USER" | "ADMIN";
   emailVerified?: boolean;
+  failedLoginAttempts: number
   isActive?: boolean;
   createdAt?: Date;
 }
