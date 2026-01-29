@@ -1,55 +1,38 @@
 import { Request } from "express";
 import { AuthRepository } from "./auth.repository.js";
-import { LoginDto, RegisterDto, AuthResponse, UserResponse } from "./auth.types.js";
-import { signAccessToken, signRefreshToken, verifyRefreshToken, } from "./utils/jwt.js";
+import { signAccessToken, signRefreshToken, verifyRefreshToken } from "./utils/jwt.js";
 import { compareHash, hashPassword, hashToken } from "./utils/password.js";
 import { AuthErrors } from "./auth.errors.js";
 import { generateSessionId } from "./utils/session.js";
 import { getRequestMeta } from "./utils/request-meta.js";
+import { LoginDto, RegisterDto, AuthResponse, UserResponse } from "./auth.types.js";
 
 export class AuthService {
 
   static async register(dto: RegisterDto, req: Request): Promise<AuthResponse> {
-    const existingUser = await AuthRepository.findUserByEmail(dto.email);
-    if (existingUser) throw AuthErrors.EMAIL_EXISTS();
-
-    const password = await hashPassword(dto.password);
+    const existing = await AuthRepository.findUserByEmail(dto.email);
+    if (existing) throw AuthErrors.EMAIL_EXISTS();
 
     const user = await AuthRepository.createUser({
       name: dto.name,
       email: dto.email,
-      password,
+      password: await hashPassword(dto.password),
       role: dto.role,
     });
 
-    const sessionId = generateSessionId();
-    const meta = getRequestMeta(req);
-
-    return this.issueTokens(user, sessionId, meta);
+    return this.issueTokens(user, generateSessionId(), getRequestMeta(req));
   }
 
   static async login(dto: LoginDto, req: Request): Promise<AuthResponse> {
     const user = await AuthRepository.findUserByEmail(dto.email);
     if (!user) throw AuthErrors.INVALID_CREDENTIALS();
 
-    if (!user.isActive) throw AuthErrors.USER_INACTIVE();
-
-    if (user.lockedUntil && user.lockedUntil > new Date()) {
-      throw AuthErrors.ACCOUNT_LOCKED(user.lockedUntil);
-    }
-
     const valid = await compareHash(dto.password, user.password);
-    if (!valid) {
-      await this.handleFailedLogin(user);
-      throw AuthErrors.INVALID_CREDENTIALS();
-    }
+    if (!valid) throw AuthErrors.INVALID_CREDENTIALS();
 
     await AuthRepository.resetFailedAttempts(user.id);
 
-    const sessionId = generateSessionId();
-    const meta = getRequestMeta(req);
-
-    return this.issueTokens(user, sessionId, meta);
+    return this.issueTokens(user, generateSessionId(), getRequestMeta(req));
   }
 
   static async refresh(refreshToken: string): Promise<AuthResponse> {
@@ -69,7 +52,6 @@ export class AuthService {
       payload.sessionId
     );
 
-    // THEFT DETECTION
     if (!token || token.revokedAt || token.expiresAt < new Date()) {
       await AuthRepository.deleteAllRefreshTokens(payload.userId);
       throw AuthErrors.INVALID_REFRESH_TOKEN();
@@ -81,15 +63,35 @@ export class AuthService {
       throw AuthErrors.INVALID_REFRESH_TOKEN();
     }
 
-    await AuthRepository.revokeRefreshToken(token.id);
-
     const user = await AuthRepository.findUserById(payload.userId);
     if (!user) throw AuthErrors.USER_NOT_FOUND();
 
-    return this.issueTokens(user, payload.sessionId, {
+    // ROTATE refresh token (UPDATE SAME ROW)
+    const newRefreshToken = signRefreshToken({
+      userId: user.id,
+      sessionId: payload.sessionId,
+    });
+
+    await AuthRepository.rotateRefreshToken({
+      userId: user.id,
+      sessionId: payload.sessionId,
+      tokenHash: await hashToken(newRefreshToken),
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       ipAddress: token.ipAddress,
       userAgent: token.userAgent,
     });
+
+    const accessToken = signAccessToken({
+      userId: user.id,
+      role: user.role,
+      sessionId: payload.sessionId,
+    });
+
+    return {
+      user: this.mapUser(user),
+      accessToken,
+      refreshToken: newRefreshToken,
+    };
   }
 
   static async logout(userId: string, sessionId?: string) {
@@ -100,15 +102,18 @@ export class AuthService {
     }
   }
 
+  // ---------------- PRIVATE ----------------
+
   private static async issueTokens(
     user: UserResponse,
     sessionId: string,
     meta: { ipAddress?: string | null; userAgent?: string | null }
   ): Promise<AuthResponse> {
+
     const accessToken = signAccessToken({
       userId: user.id,
       role: user.role,
-      sessionId
+      sessionId,
     });
 
     const refreshToken = signRefreshToken({
@@ -120,37 +125,28 @@ export class AuthService {
       userId: user.id,
       sessionId,
       tokenHash: await hashToken(refreshToken),
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       ipAddress: meta.ipAddress,
       userAgent: meta.userAgent,
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
 
     return {
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        failedLoginAttempts: user.failedLoginAttempts,
-        emailVerified: user.emailVerified,
-        isActive: user.isActive,
-        createdAt: user.createdAt,
-      },
+      user: this.mapUser(user),
       accessToken,
       refreshToken,
     };
   }
 
-  private static async handleFailedLogin(user: UserResponse) {
-    const attempts = user.failedLoginAttempts + 1;
-
-    if (attempts >= 5) {
-      await AuthRepository.lockUser(
-        user.id,
-        new Date(Date.now() + 15 * 60 * 1000)
-      );
-    } else {
-      await AuthRepository.incrementFailedAttempts(user.id);
-    }
+  private static mapUser(user: UserResponse) {
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      failedLoginAttempts: user.failedLoginAttempts,
+      emailVerified: user.emailVerified,
+      isActive: user.isActive,
+      createdAt: user.createdAt,
+    };
   }
 }

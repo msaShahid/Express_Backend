@@ -20,20 +20,6 @@ export class AuthRepository {
     return prisma.user.findUnique({ where: { email } });
   }
 
-  static lockUser(userId: string, until: Date) {
-    return prisma.user.update({
-      where: { id: userId },
-      data: { lockedUntil: until },
-    });
-  }
-
-  static incrementFailedAttempts(userId: string) {
-    return prisma.user.update({
-      where: { id: userId },
-      data: { failedLoginAttempts: { increment: 1 } },
-    });
-  }
-
   static resetFailedAttempts(userId: string) {
     return prisma.user.update({
       where: { id: userId },
@@ -41,7 +27,7 @@ export class AuthRepository {
     });
   }
 
-  // ---------------- REFRESH TOKENS ----------------
+  // ---------- REFRESH TOKENS ----------
 
   static createRefreshToken(data: {
     userId: string;
@@ -60,10 +46,28 @@ export class AuthRepository {
     });
   }
 
-  static revokeRefreshToken(id: string) {
+  static rotateRefreshToken(data: {
+    userId: string;
+    sessionId: string;
+    tokenHash: string;
+    expiresAt: Date;
+    ipAddress?: string | null;
+    userAgent?: string | null;
+  }) {
     return prisma.refreshToken.update({
-      where: { id },
-      data: { revokedAt: new Date() },
+      where: {
+        userId_sessionId: {
+          userId: data.userId,
+          sessionId: data.sessionId,
+        },
+      },
+      data: {
+        tokenHash: data.tokenHash,
+        expiresAt: data.expiresAt,
+        ipAddress: data.ipAddress,
+        userAgent: data.userAgent,
+        revokedAt: null,
+      },
     });
   }
 

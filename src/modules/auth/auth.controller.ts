@@ -12,24 +12,15 @@ export class AuthController {
         success: false,
         code: "VALIDATION_ERROR",
         message: "Invalid input",
-        details: parsed.error.flatten(),
       });
     }
 
-    try {
-      const data = await AuthService.register(parsed.data, req);
-      res.status(201).json({
-        success: true,
-        message: "Registration successful",
-        data,
-      });
-    } catch (err: any) {
-      res.status(400).json({
-        success: false,
-        code: "AUTH_ERROR",
-        message: err.message,
-      });
-    }
+    const data = await AuthService.register(parsed.data, req);
+    res.status(201).json({
+      success: true,
+      message: "Registration successful",
+      data,
+    });
   }
 
   static async login(req: Request, res: Response) {
@@ -42,20 +33,12 @@ export class AuthController {
       });
     }
 
-    try {
-      const data = await AuthService.login(parsed.data, req);
-      res.status(200).json({
-        success: true,
-        message: "Login successful",
-        data,
-      });
-    } catch (err: any) {
-      res.status(401).json({
-        success: false,
-        code: "AUTH_ERROR",
-        message: err.message,
-      });
-    }
+    const data = await AuthService.login(parsed.data, req);
+    res.status(200).json({
+      success: true,
+      message: "Login successful",
+      data,
+    });
   }
 
   static async refresh(req: Request, res: Response) {
@@ -68,37 +51,23 @@ export class AuthController {
       });
     }
 
-    try {
-      const data = await AuthService.refresh(parsed.data.refreshToken);
-      res.status(200).json({
-        success: true,
-        message: "Token refreshed successfully",
-        data,
-      });
-    } catch (err: any) {
-      res.status(401).json({
-        success: false,
-        code: "AUTH_ERROR",
-        message: err.message,
-      });
-    }
+    const data = await AuthService.refresh(parsed.data.refreshToken);
+    res.status(200).json({
+      success: true,
+      message: "Token refreshed successfully",
+      data,
+    });
   }
 
   static async logout(req: AuthRequest, res: Response) {
-    try {
-      const sessionId = req.user?.sessionId;
-      await AuthService.logout(req.user!.userId, sessionId);
-      res.status(200).json({
-        success: true,
-        message: sessionId ? "Logged out from this device" : "Logged out from all devices",
-      });
-    } catch (err: any) {
-      res.status(400).json({
-        success: false,
-        code: "AUTH_ERROR",
-        message: err.message,
-      });
-    }
+    await AuthService.logout(req.user!.userId, req.user?.sessionId);
+
+    res.status(200).json({
+      success: true,
+      message: req.user?.sessionId
+        ? "Logged out from this device"
+        : "Logged out from all devices",
+    });
   }
 
   static async me(req: AuthRequest, res: Response) {
@@ -109,6 +78,4 @@ export class AuthController {
       },
     });
   }
-
-
 }

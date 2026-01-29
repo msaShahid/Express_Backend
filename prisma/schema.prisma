@@ -49,7 +49,7 @@ model RefreshToken {
   tokenHash String
   expiresAt DateTime
 
-  sessionId    String?
+  sessionId    String
   ipAddress    String?
   userAgent    String?
 
