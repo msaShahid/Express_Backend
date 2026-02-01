@@ -1,9 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
   output   = "../generated/prisma"
@@ -18,45 +15,85 @@ enum Role {
   ADMIN
 }
 
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  LOCKED
+}
+
 model User {
-  id                  String   @id @default(uuid())
+  id                  String      @id @default(uuid())
   name                String
-  email               String   @unique
+  email               String      @unique
   password            String
-
-  emailVerified       Boolean  @default(false)
-  isActive            Boolean  @default(true)
-
+  emailVerified       Boolean     @default(false)
+  role                Role        @default(USER)
+  status              UserStatus  @default(ACTIVE)
+  
+  // Login tracking
   lastLoginAt         DateTime?
-
-  failedLoginAttempts Int      @default(0)
+  failedLoginAttempts Int         @default(0)
+  lastFailedLogin     DateTime?
   lockedUntil         DateTime?
-
-  role                Role     @default(USER)
-
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-
+  
+  // Timestamps
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+  
   // Relations
   refreshTokens       RefreshToken[]
+  auditLogs           AuditLog[]
+
+  @@index([email])
+  @@index([status])
 }
 
 model RefreshToken {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
- 
-  tokenHash String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  token     String    @unique
+  sessionId String
   expiresAt DateTime
-
-  sessionId    String
-  ipAddress    String?
-  userAgent    String?
-
-  revokedAt    DateTime?
-  createdAt DateTime @default(now())
-
+  revoked   Boolean   @default(false)
+  
+  // Request metadata
+  ipAddress String?
+  userAgent String?
+  
+  // Timestamps
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+  
   @@index([userId])
+  @@index([token])
   @@index([sessionId])
   @@unique([userId, sessionId])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  action    String   // USER_REGISTERED, USER_LOGIN, LOGIN_FAILED, etc.
+  userId    String?
+  email     String?
+  
+  // Request metadata
+  ipAddress String?
+  userAgent String?
+  
+  // Additional data
+  metadata  Json?
+  status    String   // SUCCESS or FAILURE
+  
+  // Timestamp
+  timestamp DateTime @default(now())
+  
+  // Relations
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@index([timestamp])
+  @@index([status])
 }
