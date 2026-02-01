@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs'
 import { userFactory } from '../factories/user.factory'
 
 export async function seedUsers(prisma: PrismaClient) {
-  const password = await bcrypt.hash('password123', 10)
+  const password = await bcrypt.hash('Password@123', 10)
 
   // Admin user
   await prisma.user.upsert({
