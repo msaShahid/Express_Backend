@@ -1,64 +1,87 @@
-import { Request, Response, NextFunction } from "express";
-import jwt, { JwtPayload } from "jsonwebtoken";
+import { Request, Response, NextFunction } from 'express';
+import jwt from 'jsonwebtoken';
+import { AuthErrors } from '@/modules/auth/auth.errors.js';
+import { logger } from '@/utils/logger.js';
+import { AccessTokenPayload } from '@/modules/auth/utils/jwt.js';
+
+const ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET!;
+const ISSUER = 'myapp-auth';
+const AUDIENCE = 'myapp-client';
 
 export interface AuthRequest extends Request {
-  user?: {
-    userId: string;
-    role: "USER" | "ADMIN";
-    sessionId: string;
-  };
+  user?: AccessTokenPayload;
 }
 
-interface AccessTokenPayload extends JwtPayload {
-  userId: string;
-  role: "USER" | "ADMIN";
-  sessionId: string;
-}
-
-export function requireAuth(
+export const authenticate = (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) {
-  const header = req.headers.authorization;
-
-  if (!header || !header.startsWith("Bearer ")) {
-    return res.status(401).json({
-      code: "NO_TOKEN",
-      message: "Authorization token missing",
-    });
-  }
-
-  const token = header.split(" ")[1];
-
+) => {
   try {
-    const payload = jwt.verify(
-      token,
-      process.env.ACCESS_TOKEN_SECRET!,
-      {
-        clockTolerance: 5, // 5 seconds skew tolerance
-      }
-    ) as AccessTokenPayload;
+    const authHeader = req.headers.authorization;
 
-    req.user = {
-      userId: payload.userId,
-      role: payload.role,
-      sessionId: payload.sessionId,
-    };
-
-    next();
-  } catch (err: unknown) {
-    if (err && typeof err === "object" && "name" in err && err.name === "TokenExpiredError") {
-      return res.status(401).json({
-        code: "TOKEN_EXPIRED",
-        message: "Access token expired",
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      logger.warn('Missing or invalid authorization header', {
+        path: req.path,
+        ip: req.ip,
       });
+      throw AuthErrors.UNAUTHORIZED();
     }
 
-    return res.status(401).json({
-      code: "INVALID_TOKEN",
-      message: "Invalid access token",
-    });
-  }
+    const token = authHeader.substring(7);
 
-}
+    try {
+      const decoded = jwt.verify(token, ACCESS_TOKEN_SECRET, {
+        issuer: ISSUER,
+        audience: AUDIENCE,
+        algorithms: ['HS256'],
+      }) as AccessTokenPayload;
+
+      req.user = decoded;
+      next();
+    } catch (error) {
+      logger.warn('Token verification failed', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        path: req.path,
+        ip: req.ip,
+      });
+
+      if (error instanceof Error && error.name === 'TokenExpiredError') {
+        throw AuthErrors.TOKEN_EXPIRED();
+      }
+
+      throw AuthErrors.UNAUTHORIZED();
+    }
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const authorize = (...allowedRoles: string[]) => {
+  return (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        throw AuthErrors.UNAUTHORIZED();
+      }
+
+      if (!allowedRoles.includes(req.user.role)) {
+        logger.warn('Insufficient permissions', {
+          userId: req.user.userId,
+          role: req.user.role,
+          required: allowedRoles,
+          path: req.path,
+        });
+
+        return res.status(403).json({
+          success: false,
+          code: 'FORBIDDEN',
+          message: 'Insufficient permissions',
+        });
+      }
+
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+};
