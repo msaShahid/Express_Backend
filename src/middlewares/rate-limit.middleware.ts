@@ -29,18 +29,31 @@ const createRateLimiter = (windowMs: number, max: number, message: string) => {
 
 export const loginRateLimiter = createRateLimiter(
   15 * 60 * 1000,
-  5,
-  'Too many login attempts, please try again later'
+  10,
+  'Too many login attempts. Please try again in 15 minutes.'
 );
 
 export const registerRateLimiter = createRateLimiter(
-  60 * 60 * 1000,
-  3,
-  'Too many registration attempts, please try again later'
+  24 * 60 * 60 * 1000,
+  5,
+  'Too many registration attempts. Please try again later.'
 );
 
+export const refreshRateLimiter = createRateLimiter(
+  1 * 60 * 1000,
+  10,
+  'Too many refresh attempts. Please slow down.'
+);
+
+
 export const apiRateLimiter = createRateLimiter(
-  15 * 60 * 1000,
-  100,
-  'Too many requests, please try again later'
+  1 * 60 * 1000,
+  120,
+  'Too many requests. Please slow down.'
+);
+
+export const authApiRateLimiter = createRateLimiter(
+  1 * 60 * 1000,
+  300,
+  'Too many requests. Please slow down.'
 );
