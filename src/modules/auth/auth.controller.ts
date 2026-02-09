@@ -1,9 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
 import { AuthService } from './auth.service.js';
 import { AuthRequest } from '@/middlewares/auth.middleware.js';
+import { ChangePasswordSchema, ForgotPasswordSchema, ResetPasswordSchema } from './auth.schemas.js';
+import { createValidationErrorResponse } from '@/utils/validation.js';
 
 export class AuthController {
-  
+
   static async register(req: Request, res: Response, next: NextFunction) {
     try {
       const data = await AuthService.register(req.body, req);
@@ -74,4 +76,67 @@ export class AuthController {
       next(error);
     }
   }
+
+  static async forgotPassword(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parsed = ForgotPasswordSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(422).json(createValidationErrorResponse(parsed.error));
+      }
+
+      const data = await AuthService.forgotPassword(parsed.data, req);
+
+      res.status(200).json({
+        success: true,
+        message: data.message,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async resetPassword(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parsed = ResetPasswordSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(422).json(createValidationErrorResponse(parsed.error));
+      }
+
+      const data = await AuthService.resetPassword(parsed.data, req);
+
+      res.status(200).json({
+        success: true,
+        message: data.message,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  static async changePassword(
+    req: AuthRequest,
+    res: Response,
+    next: NextFunction
+  ) {
+    try {
+      const parsed = ChangePasswordSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(422).json(createValidationErrorResponse(parsed.error));
+      }
+
+      const data = await AuthService.changePassword(
+        req.user!.userId,
+        parsed.data,
+        req
+      );
+
+      res.status(200).json({
+        success: true,
+        message: data.message,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
 }
