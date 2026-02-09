@@ -223,4 +223,115 @@ export class AuthRepository {
       logger.error('Failed to cleanup expired tokens', { error });
     }
   }
+
+  // Password reset token methods
+  static async createPasswordResetToken(
+    userId: string,
+    token: string,
+    expiresAt: Date,
+    ipAddress?: string | null,
+    userAgent?: string | null
+  ): Promise<void> {
+    try {
+      await prisma.passwordResetToken.create({
+        data: {
+          userId,
+          token,
+          expiresAt,
+          ipAddress,
+          userAgent,
+        },
+      });
+    } catch (error) {
+      logger.error('Failed to create password reset token', { userId, error });
+      throw error;
+    }
+  }
+
+  static async findPasswordResetToken(token: string) {
+    try {
+      return await prisma.passwordResetToken.findUnique({
+        where: { token },
+        include: { user: true },
+      });
+    } catch (error) {
+      logger.error('Failed to find password reset token', { error });
+      return null;
+    }
+  }
+
+  static async markResetTokenAsUsed(token: string): Promise<void> {
+    try {
+      await prisma.passwordResetToken.update({
+        where: { token },
+        data: { usedAt: new Date() },
+      });
+    } catch (error) {
+      logger.error('Failed to mark reset token as used', { error });
+    }
+  }
+
+  static async deletePasswordResetTokens(userId: string): Promise<void> {
+    try {
+      await prisma.passwordResetToken.deleteMany({
+        where: { userId },
+      });
+    } catch (error) {
+      logger.error('Failed to delete password reset tokens', { userId, error });
+    }
+  }
+
+  static async updatePassword(
+    userId: string,
+    newPassword: string
+  ): Promise<void> {
+    try {
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          password: newPassword,
+          passwordChangedAt: new Date(),
+        },
+      });
+    } catch (error) {
+      logger.error('Failed to update password', { userId, error });
+      throw error;
+    }
+  }
+
+  static async countRecentResetRequests(
+    userId: string,
+    withinMinutes: number
+  ): Promise<number> {
+    try {
+      const since = new Date(Date.now() - withinMinutes * 60 * 1000);
+
+      return await prisma.passwordResetToken.count({
+        where: {
+          userId,
+          createdAt: { gte: since },
+        },
+      });
+    } catch (error) {
+      logger.error('Failed to count recent reset requests', { userId, error });
+      return 0;
+    }
+  }
+
+  static async cleanupExpiredResetTokens(): Promise<void> {
+    try {
+      const deleted = await prisma.passwordResetToken.deleteMany({
+        where: {
+          OR: [
+            { expiresAt: { lt: new Date() } },
+            { usedAt: { not: null } },
+          ],
+        },
+      });
+      logger.info('Cleaned up expired reset tokens', { count: deleted.count });
+    } catch (error) {
+      logger.error('Failed to cleanup expired reset tokens', { error });
+    }
+  }
+
 }
