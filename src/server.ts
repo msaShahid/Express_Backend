@@ -1,11 +1,9 @@
-// import dotenv from 'dotenv';
-// dotenv.config();
-
 import app from './app.js';
 import fs from 'fs';
 import path from 'path';
 import { logger } from './utils/logger.js';
 import { prisma } from './prisma/client.js';
+import { startCleanupJob } from './jobs/cleanup.job.js';
 
 const PORT = process.env.PORT || 4000;
 
@@ -26,4 +24,8 @@ process.on('SIGINT', gracefulShutdown);
 app.listen(PORT, () => {
   logger.info(`Server running on port ${PORT}`);
   logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  
+  // Start cleanup job
+  startCleanupJob(); 
+
 });
