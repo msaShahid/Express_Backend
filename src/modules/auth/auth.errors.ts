@@ -33,4 +33,23 @@ export const AuthErrors = {
       'Password does not meet security requirements',
       'WEAK_PASSWORD'
     ),
+    
+  EMAIL_NOT_VERIFIED: () =>
+    new ApiError(403, 'Please verify your email first', 'EMAIL_NOT_VERIFIED'),
+  
+  INVALID_RESET_TOKEN: () =>
+    new ApiError(400, 'Invalid or expired reset token', 'INVALID_RESET_TOKEN'),
+
+  RESET_TOKEN_EXPIRED: () =>
+    new ApiError(400, 'Reset token has expired', 'RESET_TOKEN_EXPIRED'),
+
+  RESET_TOKEN_ALREADY_USED: () =>
+    new ApiError(400, 'Reset token has already been used', 'RESET_TOKEN_ALREADY_USED'),
+
+  SAME_PASSWORD: () =>
+    new ApiError(400, 'New password must be different from current password', 'SAME_PASSWORD'),
+
+  RATE_LIMIT_RESET: () =>
+    new ApiError(429, 'Too many password reset requests. Please try again later.', 'RATE_LIMIT_RESET'),
+
 };
