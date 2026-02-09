@@ -57,3 +57,9 @@ export const authApiRateLimiter = createRateLimiter(
   300,
   'Too many requests. Please slow down.'
 );
+
+export const passwordResetRateLimiter = createRateLimiter(
+  60 * 60 * 1000, // 1 hour
+  3, // 3 requests
+  'Too many password reset requests, please try again later'
+);
