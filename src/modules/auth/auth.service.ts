@@ -1,7 +1,7 @@
 import { Request } from 'express';
 import { AuthRepository } from './auth.repository.js';
 import { AuthErrors } from './auth.errors.js';
-import { RegisterDto, LoginDto } from './auth.schemas.js';
+import { RegisterDto, LoginDto, ChangePasswordDto, ResetPasswordDto, ForgotPasswordDto } from './auth.schemas.js';
 import { AuthResponse } from './auth.types.js';
 import { hashPassword, compareHash } from './utils/password.js';
 import {
@@ -15,12 +15,14 @@ import { generateSessionId } from './utils/session.js';
 import { getRequestMeta } from './utils/request-meta.js';
 import { logger } from '@/utils/logger.js';
 import { AuditLogger, AuditAction } from '@/utils/audit-logger.js';
+import { EmailService } from '@/utils/email.js';
+import { generateResetToken, getResetTokenExpiry, hashResetToken } from './utils/reset-token.js';
 
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCK_DURATION_MINUTES = 30;
 
 export class AuthService {
-  
+
   private static async issueTokens(
     user: any,
     sessionId: string,
@@ -330,4 +332,366 @@ export class AuthService {
       metadata: { sessionId, scope: sessionId ? 'single' : 'all' },
     });
   }
+
+  /**
+ * Request password reset - sends email with reset link
+ */
+  static async forgotPassword(
+    dto: ForgotPasswordDto,
+    req: Request
+  ): Promise<{ message: string }> {
+    const meta = getRequestMeta(req);
+
+    logger.info('Password reset requested', {
+      email: dto.email,
+      ipAddress: meta.ipAddress,
+    });
+
+    const user = await AuthRepository.findUserByEmail(dto.email);
+
+    // Always return success to prevent email enumeration
+    if (!user) {
+      logger.warn('Password reset requested for non-existent email', {
+        email: dto.email,
+        ipAddress: meta.ipAddress,
+      });
+
+      // Still log the attempt but don't reveal user doesn't exist
+      await AuditLogger.logFailure(AuditAction.PASSWORD_RESET_REQUESTED, {
+        email: dto.email,
+        ipAddress: meta.ipAddress,
+        userAgent: meta.userAgent,
+        metadata: { reason: 'User not found' },
+      });
+
+      // Return success anyway to prevent email enumeration
+      return {
+        message: 'If your email is registered, you will receive a password reset link.',
+      };
+    }
+
+    // Check if account is active
+    if (user.status !== 'ACTIVE') {
+      logger.warn('Password reset requested for inactive account', {
+        userId: user.id,
+        email: dto.email,
+        status: user.status,
+      });
+
+      await AuditLogger.logFailure(AuditAction.PASSWORD_RESET_REQUESTED, {
+        userId: user.id,
+        email: dto.email,
+        ipAddress: meta.ipAddress,
+        userAgent: meta.userAgent,
+        metadata: { reason: 'Account not active', status: user.status },
+      });
+
+      return {
+        message: 'If your email is registered, you will receive a password reset link.',
+      };
+    }
+
+    // Rate limiting: max 3 requests per hour
+    const recentRequests = await AuthRepository.countRecentResetRequests(
+      user.id,
+      60
+    );
+
+    if (recentRequests >= 3) {
+      logger.warn('Too many password reset requests', {
+        userId: user.id,
+        email: dto.email,
+        count: recentRequests,
+      });
+
+      await AuditLogger.logFailure(AuditAction.PASSWORD_RESET_REQUESTED, {
+        userId: user.id,
+        email: dto.email,
+        ipAddress: meta.ipAddress,
+        userAgent: meta.userAgent,
+        metadata: { reason: 'Rate limit exceeded', count: recentRequests },
+      });
+
+      throw AuthErrors.RATE_LIMIT_RESET();
+    }
+
+    // Generate reset token
+    const plainToken = generateResetToken();
+    const hashedToken = hashResetToken(plainToken);
+    const expiresAt = getResetTokenExpiry();
+
+    // Save token to database
+    await AuthRepository.createPasswordResetToken(
+      user.id,
+      hashedToken,
+      expiresAt,
+      meta.ipAddress,
+      meta.userAgent
+    );
+
+    // Send email
+    const emailSent = await EmailService.sendPasswordResetEmail(
+      user.email,
+      user.name,
+      plainToken
+    );
+
+    if (!emailSent) {
+      logger.error('Failed to send password reset email', {
+        userId: user.id,
+        email: user.email,
+      });
+
+      await AuditLogger.logFailure(AuditAction.PASSWORD_RESET_REQUESTED, {
+        userId: user.id,
+        email: user.email,
+        ipAddress: meta.ipAddress,
+        userAgent: meta.userAgent,
+        metadata: { reason: 'Email sending failed' },
+      });
+
+      throw new Error('Failed to send password reset email');
+    }
+
+    logger.info('Password reset email sent', {
+      userId: user.id,
+      email: user.email,
+      ipAddress: meta.ipAddress,
+    });
+
+    await AuditLogger.logSuccess(AuditAction.PASSWORD_RESET_REQUESTED, {
+      userId: user.id,
+      email: user.email,
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+
+    return {
+      message: 'If your email is registered, you will receive a password reset link.',
+    };
+  }
+
+  /**
+   * Reset password using token from email
+   */
+  static async resetPassword(
+    dto: ResetPasswordDto,
+    req: Request
+  ): Promise<{ message: string }> {
+    const meta = getRequestMeta(req);
+
+    logger.info('Password reset attempt', {
+      ipAddress: meta.ipAddress,
+    });
+
+    // Hash the provided token to match database
+    const hashedToken = hashResetToken(dto.token);
+
+    // Find reset token
+    const resetToken = await AuthRepository.findPasswordResetToken(hashedToken);
+
+    if (!resetToken) {
+      logger.warn('Invalid reset token used', {
+        ipAddress: meta.ipAddress,
+      });
+
+      await AuditLogger.logFailure(AuditAction.PASSWORD_RESET_FAILED, {
+        ipAddress: meta.ipAddress,
+        userAgent: meta.userAgent,
+        metadata: { reason: 'Token not found' },
+      });
+
+      throw AuthErrors.INVALID_RESET_TOKEN();
+    }
+
+    // Check if token is expired
+    if (resetToken.expiresAt < new Date()) {
+      logger.warn('Expired reset token used', {
+        userId: resetToken.userId,
+        ipAddress: meta.ipAddress,
+      });
+
+      await AuditLogger.logFailure(AuditAction.PASSWORD_RESET_FAILED, {
+        userId: resetToken.userId,
+        email: resetToken.user.email,
+        ipAddress: meta.ipAddress,
+        userAgent: meta.userAgent,
+        metadata: { reason: 'Token expired' },
+      });
+
+      throw AuthErrors.RESET_TOKEN_EXPIRED();
+    }
+
+    // Check if token has already been used
+    if (resetToken.usedAt) {
+      logger.warn('Already used reset token', {
+        userId: resetToken.userId,
+        ipAddress: meta.ipAddress,
+      });
+
+      await AuditLogger.logFailure(AuditAction.PASSWORD_RESET_FAILED, {
+        userId: resetToken.userId,
+        email: resetToken.user.email,
+        ipAddress: meta.ipAddress,
+        userAgent: meta.userAgent,
+        metadata: { reason: 'Token already used' },
+      });
+
+      throw AuthErrors.RESET_TOKEN_ALREADY_USED();
+    }
+
+    // Check if new password is same as old password
+    const isSamePassword = await compareHash(
+      dto.password,
+      resetToken.user.password
+    );
+
+    if (isSamePassword) {
+      logger.warn('User tried to reuse old password', {
+        userId: resetToken.userId,
+        email: resetToken.user.email,
+      });
+
+      await AuditLogger.logFailure(AuditAction.PASSWORD_RESET_FAILED, {
+        userId: resetToken.userId,
+        email: resetToken.user.email,
+        ipAddress: meta.ipAddress,
+        userAgent: meta.userAgent,
+        metadata: { reason: 'Same password as before' },
+      });
+
+      throw AuthErrors.SAME_PASSWORD();
+    }
+
+    // Hash new password
+    const hashedPassword = await hashPassword(dto.password);
+
+    // Update password
+    await AuthRepository.updatePassword(resetToken.userId, hashedPassword);
+
+    // Mark token as used
+    await AuthRepository.markResetTokenAsUsed(hashedToken);
+
+    // Revoke all user sessions for security
+    await AuthRepository.revokeUserSessions(resetToken.userId);
+
+    // Send confirmation email
+    await EmailService.sendPasswordChangedEmail(
+      resetToken.user.email,
+      resetToken.user.name
+    );
+
+    logger.info('Password reset successful', {
+      userId: resetToken.userId,
+      email: resetToken.user.email,
+      ipAddress: meta.ipAddress,
+    });
+
+    await AuditLogger.logSuccess(AuditAction.PASSWORD_RESET_COMPLETED, {
+      userId: resetToken.userId,
+      email: resetToken.user.email,
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+
+    return {
+      message: 'Password reset successful. Please login with your new password.',
+    };
+  }
+
+  /**
+   * Change password for authenticated user
+   */
+  static async changePassword(
+    userId: string,
+    dto: ChangePasswordDto,
+    req: Request
+  ): Promise<{ message: string }> {
+    const meta = getRequestMeta(req);
+
+    logger.info('Password change attempt', {
+      userId,
+      ipAddress: meta.ipAddress,
+    });
+
+    const user = await AuthRepository.findUserById(userId);
+
+    if (!user) {
+      throw AuthErrors.USER_NOT_FOUND();
+    }
+
+    // Verify current password
+    const isCurrentPasswordValid = await compareHash(
+      dto.currentPassword,
+      user.password
+    );
+
+    if (!isCurrentPasswordValid) {
+      logger.warn('Password change failed - invalid current password', {
+        userId,
+        ipAddress: meta.ipAddress,
+      });
+
+      await AuditLogger.logFailure(AuditAction.PASSWORD_CHANGED, {
+        userId,
+        email: user.email,
+        ipAddress: meta.ipAddress,
+        userAgent: meta.userAgent,
+        metadata: { reason: 'Invalid current password' },
+      });
+
+      throw AuthErrors.INVALID_CREDENTIALS();
+    }
+
+    // Check if new password is same as current
+    const isSamePassword = await compareHash(dto.newPassword, user.password);
+
+    if (isSamePassword) {
+      logger.warn('User tried to reuse current password', {
+        userId,
+        email: user.email,
+      });
+
+      await AuditLogger.logFailure(AuditAction.PASSWORD_CHANGED, {
+        userId,
+        email: user.email,
+        ipAddress: meta.ipAddress,
+        userAgent: meta.userAgent,
+        metadata: { reason: 'Same as current password' },
+      });
+
+      throw AuthErrors.SAME_PASSWORD();
+    }
+
+    // Hash new password
+    const hashedPassword = await hashPassword(dto.newPassword);
+
+    // Update password
+    await AuthRepository.updatePassword(userId, hashedPassword);
+
+    // Revoke all other sessions for security (keep current session)
+    // Note: This would require tracking current sessionId, for now revoke all
+    await AuthRepository.revokeUserSessions(userId);
+
+    // Send confirmation email
+    await EmailService.sendPasswordChangedEmail(user.email, user.name);
+
+    logger.info('Password changed successfully', {
+      userId,
+      email: user.email,
+      ipAddress: meta.ipAddress,
+    });
+
+    await AuditLogger.logSuccess(AuditAction.PASSWORD_CHANGED, {
+      userId,
+      email: user.email,
+      ipAddress: meta.ipAddress,
+      userAgent: meta.userAgent,
+    });
+
+    return {
+      message: 'Password changed successfully. Please login again.',
+    };
+  }
+
 }
